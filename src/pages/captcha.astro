@@ -1,0 +1,276 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
+// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+---
+
+<Layout>
+	<!-- Hero: heading slides from right → center, then lifts up & fades -->
+    <section class="relative h-[36vh] min-h-[280px] grid place-items-center">
+    <!-- Soft top glow -->
+    <div class="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/5 to-transparent"></div>
+
+
+    <h1
+    class="relative z-10 text-center font-semibold tracking-tight text-4xl sm:text-5xl md:text-6xl leading-[1.05] will-change-transform motion-reduce:animate-none animate-lift-fade"
+    style="animation-delay:800ms"
+    > 
+        <span class="inline-block motion-reduce:animate-none animate-slide-in-right">
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-neutral-100 to-neutral-400">
+                Race against the machine
+            </span>
+        </span>
+    </h1>
+
+
+    <p class="absolute bottom-4 text-neutral-400 text-sm md:text-base">
+    Beat the bot by solving the challenge faster.
+    </p>
+    </section>
+
+
+    <!-- Two-square grid (Player vs Machine) -->
+    <section class="p-4">
+	<div id="captchaPrompt" class="flex justify-center items-center">
+	</div>
+	<div class="grid grid-cols-2 p-2">
+		<div class="flex justify-center items-center font-bold text-2xl">
+			You
+		</div>
+		<div class="flex justify-center items-center font-bold text-2xl">
+			Conversation-TPG 23.08
+		</div>
+		<div class="flex justify-center items-center">
+			<div id="captchaGrid" class="grid grid-cols-3 w-47 h-47"></div>
+		</div>
+		<div class="flex justify-center items-center">
+			<div id="captchaAiGrid" class="grid grid-cols-3 w-47 h-47"></div>
+		</div>
+		<div class="flex items-center justify-center">
+			<button id="validateCaptcha" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded-xl cursor-pointer hover:bg-blue-400 w-40">validate</button>
+		</div>
+	</div>
+    </section>
+</Layout>
+
+<script lang="js">
+	const grid = document.getElementById("captchaGrid");
+	const aiGrid = document.getElementById("captchaAiGrid");
+	// const reloadBtn = document.getElementById("reloadCaptcha");
+	const validateBtn = document.getElementById("validateCaptcha");
+	const captchaPrompt = document.getElementById("captchaPrompt");
+	let correctImages = [];
+	let imagesToggle = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+	let imagesToggleAi = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+	let timeouts = []
+	let captchaSequence = []
+	let captchaSequenceCounter = 0
+
+	resetCaptcha();
+	console.log("Captcha sequence:", captchaSequence);
+
+	function resetCaptcha() {
+		captchaSequence = [];
+		while (captchaSequence.length < 3) {
+			const rand = Math.floor(Math.random() * 5);
+			if (!captchaSequence.includes(rand)) {
+				captchaSequence.push(rand);
+			}
+		}
+		captchaSequenceCounter = 0;
+	}
+
+	async function loadCaptcha() {
+		// 1. Generate random number 0–5
+		// const randomNum = Math.floor(Math.random() * 5);
+		if (captchaSequenceCounter >= captchaSequence.length) {
+			console.log("CAPTCHA SEQUENCE ENDED, RESTARTING")
+			captchaSequenceCounter = 0;
+		}
+		const randomNum = captchaSequence[captchaSequenceCounter];
+
+		// 2. Clear old images
+		grid.innerHTML = "";
+		aiGrid.innerHTML = "";
+		imagesToggle = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+		imagesToggleAi = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+		timeouts.forEach(timeout => clearTimeout(timeout));
+		timeouts = [];
+		captchaPrompt.innerHTML = `<div class="mt-4 p-2 bg-yellow-200 border border-yellow-400 rounded-xl w-fit">Loading...</div>`;
+
+		// 3. Add 9 images from the chosen folder
+		for (let i = 1; i <= 9; i++) {
+			const wrapper = document.createElement("div");
+			wrapper.className = "w-15 h-15 bg-blue-300 flex items-center justify-center";
+			wrapper.setAttribute("onclick", `shrinkImage('img-${i}', ${i - 1})`);
+
+			const img = document.createElement("img");
+			img.id = `img-${i}`;
+			img.src = `/captcha${randomNum}/img${i}.jpeg`; // adjust extension if png/webp
+			img.alt = `Captcha ${i}`;
+			img.className = "w-full h-full";
+
+			wrapper.appendChild(img);
+			grid.appendChild(wrapper);
+		}
+
+		for (let i = 1; i <= 9; i++) {
+			const wrapper = document.createElement("div");
+			wrapper.className = "w-15 h-15 bg-blue-300 flex items-center justify-center";
+
+			const img = document.createElement("img");
+			img.id = `img-ai-${i}`;
+			img.src = `/captcha${randomNum}/img${i}.jpeg`; // adjust extension if png/webp
+			img.alt = `CaptchaAi ${i}`;
+			img.className = "w-full h-full";
+
+			wrapper.appendChild(img);
+			aiGrid.appendChild(wrapper);
+		}
+		
+		try {
+			const res = await fetch(`/captcha${randomNum}/correct.json`);
+			if (!res.ok) throw new Error("Could not load correct.json");
+			correctImages = await res.json();
+			console.log("Correct answers for captcha", randomNum, correctImages);
+		} catch (err) {
+			console.error("Error loading correct.json:", err);
+			correctImages = [];
+		}
+		try {
+			const res = await fetch(`/captcha${randomNum}/prompt.json`);
+			if (!res.ok) throw new Error("Could not load prompt.json");
+			promptText = await res.json();
+			console.log("Prompt for captcha", randomNum, JSON.stringify(promptText.prompt));
+			if (captchaSequenceCounter === 2) {
+                captchaPrompt.innerHTML = `<div class="mt-4 p-2 bg-yellow-200 text-black border border-yellow-400 rounded-xl w-fit">FINAL ROUND | ${JSON.stringify(promptText.prompt)}</div>`;
+            } else {
+                captchaPrompt.innerHTML = `<div class="mt-4 p-2 bg-yellow-200 text-black border border-yellow-400 rounded-xl w-fit">ROUND: ${captchaSequenceCounter + 1} | ${JSON.stringify(promptText.prompt)}</div>`;
+            }
+		} catch (err) {
+			console.error("Error loading prompt.json:", err);
+			promptText = "";
+		}
+		captchaSequenceCounter++;
+		startAiSolve();
+	}
+
+	function validateCaptcha() {
+		console.log(`correctImages: ${JSON.stringify(correctImages)}`);
+		console.log(`correct type: ${typeof correctImages}`);
+		const exists = correctImages.some(inner => arraysEqual(imagesToggle, inner));
+
+		if (exists) {
+			if (captchaSequenceCounter > 2) {
+                alert("Congratulations! You've beaten the machine. The AI couldn't keep up with you!");
+				resetCaptcha();
+				loadCaptcha();
+			} else {
+				loadCaptcha();
+			}
+		} else {
+			alert("Captcha validation failed. Please try again.");
+		}
+	}
+
+	// Load on first page render
+	loadCaptcha();
+
+	// Reload on button press
+	// reloadBtn.addEventListener("click", loadCaptcha);
+	validateBtn.addEventListener("click", validateCaptcha);
+
+	function shrinkImage(image, index) {
+		console.log(`Toggle image: ${image}`);
+		if (imagesToggle[index] === 0) { 
+			const img = document.getElementById(image);
+			if (img === null) return;
+			img.classList.remove('w-full', 'h-full');
+			img.classList.add('w-12', 'h-12');
+			imagesToggle[index] = 1;
+		} else {
+			const img = document.getElementById(image);
+			if (img === null) return;
+			img.classList.remove('w-12', 'h-12');
+			img.classList.add('w-full', 'h-full');
+			imagesToggle[index] = 0;
+		}
+
+		console.log(`state: ${imagesToggle}`)
+	}
+
+	function shrinkImageAi(image, index) {
+		console.log(`Toggle image: ${image}`);
+		if (imagesToggle[index] === 0) { 
+			const img = document.getElementById(image);
+			if (img === null) return;
+			img.classList.remove('w-full', 'h-full');
+			img.classList.add('w-12', 'h-12');
+			imagesToggleAi[index] = 1;
+		} else {
+			const img = document.getElementById(image);
+			if (img === null) return;
+			img.classList.remove('w-12', 'h-12');
+			img.classList.add('w-full', 'h-full');
+			imagesToggleAi[index] = 0;
+		}
+
+		console.log(`state: ${imagesToggle}`)
+	}
+
+	function startAiSolve(totalTime = 10000) {	
+		let correctArray = [];
+
+		let maxImages = 0;
+		let maxImagesIndex = 0;
+		for (let i = 0; i < correctImages.length; i++) {
+			imagesNum = correctImages[i].reduce((sum, val) => sum + val, 0);
+			if (imagesNum > maxImages) {
+				maxImages = imagesNum;
+				maxImagesIndex = i;
+			}
+		}
+		const logCount = maxImages
+		correctArray = correctImages[maxImagesIndex];
+
+		// Ensure at least one log happens at the end
+		if (logCount < 1) logCount = 1;
+
+		// Generate random times within the range (0, totalTime)
+		const times = [];
+		const imagesIndex = [];
+		for (let i = 0; i < correctArray.length; i++) {
+			if (correctArray[i] === 1) {
+				imagesIndex.push(i);
+			}
+		}
+		for (let i = 0; i < logCount - 1; i++) {
+			times.push(Math.random() * totalTime);
+		}
+
+		// Always add the final log exactly at the end
+		times.push(totalTime);
+
+		// Sort so they trigger in order
+		times.sort((a, b) => a - b);
+
+		// Schedule logs
+		times.forEach((t, index) => {
+			const timeoutId = setTimeout(() => {
+				shrinkImageAi(`img-ai-${imagesIndex[index] + 1}`, imagesIndex[index]);
+                setTimeout(() => {
+                    if (index + 1 === maxImages) {
+                        alert("The AI has completed its attempt to solve the captcha. SkyNet wins this time!")
+                    }
+                }, 100);
+			}, t);
+			timeouts.push(timeoutId);
+		});
+	}
+
+	function arraysEqual(a, b) {
+		if (a.length !== b.length) return false;
+		return a.every((val, i) => val === b[i]);
+	}
+</script>
